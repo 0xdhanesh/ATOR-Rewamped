@@ -176,3 +176,11 @@ Synopsys.
 ## License
 
 Synopsys releases this software under the MIT license.
+
+## Contact
+
+[Gmail](mailto:dhanesh.professional@gmail.com) | [LinkedIn](https://linkedin.com/in/dhanesh-sivasamy) 
+
+## Contributors
+
+- My Brain, Frusturation with old version and AI Agents

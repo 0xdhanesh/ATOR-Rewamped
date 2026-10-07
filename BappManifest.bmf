@@ -1,0 +1,13 @@
+Uuid: 51327b097b354243b307b4ed87ba39eb
+ExtensionType: 1
+Name: Authentication Token Obtain and Replace
+RepoName: ator
+ScreenVersion: 2.4.1
+SerialVersion: 8
+MinPlatformVersion: 0
+ProOnly: False
+Author: Synopsys-Sig
+ShortDescription: Helps automated scanning accessing/refreshing tokens, replacing tokens in XML and JSON body,replacing tokens in cookies.
+EntryPoint: bin/ATOR-v2.4.1.jar
+BuildCommand: mvn clean install
+SupportedProducts: Pro, Community
