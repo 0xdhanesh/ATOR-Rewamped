@@ -22,7 +22,7 @@ public final class AtorSessionAction implements SessionHandlingAction {
     public ActionResult performAction(SessionHandlingActionData actionData) {
         HttpRequest request = actionData.request();
         try {
-            if (!PreviewPanel.isPreviewEnabled) {
+            if (!PreviewPanel.isPreviewEnabled && AtorHttpHandler.domainAllowed(request)) {
                 AtorEngine.ensureTokens();
                 request = AtorEngine.apply(request);
             }

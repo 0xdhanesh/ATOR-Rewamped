@@ -49,8 +49,18 @@ public class ExportATOR {
 		jsonObject.put("errorCondition", getErrorCondition());
 		jsonObject.put("obtainToken", getObtainToken());
 		jsonObject.put("errorConditionReplacement", getErrorConditionReplacement());
+		jsonObject.put("domains", domainArray());
+		jsonObject.put("domainsEnabled", DomainFilter.isEnabled());
 		
 		return jsonObject;
+	}
+
+	private JSONArray domainArray() {
+		JSONArray array = new JSONArray();
+		for (String host : DomainFilter.patterns()) {
+			array.add(host);
+		}
+		return array;
 	}
 	
 	public JSONObject getErrorCondition() {

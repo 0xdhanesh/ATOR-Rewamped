@@ -17,9 +17,9 @@ import burp.api.montoya.http.message.responses.HttpResponse;
  *
  * <p>Control plane, accepted only from Extensions, Burp AI, and Repeater so a
  * proxied browser cannot invoke it. Add header {@code X-ATOR-Command} with
- * {@code status}, {@code refresh}, {@code export}, or {@code import}. The
- * request is not forwarded. {@code import} reads the HTTP body as an ATOR
- * export document.
+ * {@code status}, {@code refresh}, {@code export}, {@code import}, or
+ * {@code domains}. The request is not forwarded. {@code import} reads the
+ * HTTP body as an ATOR export document. {@code domains} replaces the host list.
  */
 public final class AtorHttpHandler implements HttpHandler {
     static final String COMMAND_HEADER = "X-ATOR-Command";
@@ -127,6 +127,20 @@ public final class AtorHttpHandler implements HttpHandler {
                 return false;
             }
         }
-        return true;
+        return domainAllowed(request);
+    }
+
+    static boolean domainAllowed(HttpRequest request) {
+        if (!DomainFilter.isEnabled()) {
+            return true;
+        }
+        try {
+            if (request == null || request.httpService() == null) {
+                return false;
+            }
+            return DomainFilter.allows(request.httpService().host(), request.httpService().port());
+        } catch (RuntimeException e) {
+            return false;
+        }
     }
 }

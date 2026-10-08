@@ -2,9 +2,18 @@
 
 ATOR is a Burp Suite extension that obtains tokens from a recorded macro and replaces them in later requests. It covers access and refresh tokens in headers, cookies, the URL, and XML, JSON, or form bodies.
 
-Version 2.4.1 keeps the same four-step configuration UI and adds a Montoya HTTP path that stays valid on HTTP/2. It also exposes a small command plane that burp-mcp can call.
+Version 2.4.2 keeps the 2.4.1 Montoya HTTP path and adds a domain list. Leave the list empty and ATOR still handles every host. Add one or more hosts and ATOR obtains and replaces tokens only for those domains.
 
 The original idea comes from [ExtendedMacro](https://github.com/FrUh/ExtendedMacro).
+
+## What 2.4.2 changes
+
+- **Settings → Domains.** Type a host and press Add. `*.example.com` includes that domain and its subdomains. `host:port` pins a port. **Only selected domains** turns the filter on. Clear the list to handle every host again.
+- **Send to ATOR v2.4.2 → 3. Add domain.** The host of each selected message is added and the filter turns on.
+- `X-ATOR-Command: domains` replaces the list. The body is a JSON array, `{"domains":["api.example.com","*.lab.local"]}`, or one host per line. `{"domains":[]}` handles every host again. `{"enabled":false}` keeps the list and handles every host.
+- Export and import include `domains` and `domainsEnabled`. An older export file without those keys leaves the current list as it is.
+
+The filter applies to the HTTP handler and to the `ATOR` session handling action. Command requests are answered before the filter. Macro requests stay marked with `X-ATOR-Macro` and are not filtered again. The list is saved in Burp's extension preferences and comes back after a reload.
 
 ## What 2.4.1 changes
 
@@ -31,7 +40,7 @@ Other behavior in this build:
 The extension logs this line when both the legacy and Montoya entry points have run:
 
 ```text
-ATOR v2.4.1 loaded for Burp 2026.8 (Montoya HTTP handler, HTTP/2 safe).
+ATOR v2.4.2 loaded for Burp 2026.8 (Montoya HTTP handler, HTTP/2 safe).
 ```
 
 ## How a request is handled
@@ -40,7 +49,7 @@ ATOR v2.4.1 loaded for Burp 2026.8 (Montoya HTTP handler, HTTP/2 safe).
 2. Each replacement rule locates the current token (URL, JSON or multipart body, or header) and writes the stored value into that section.
 3. When the response matches the configured error condition, ATOR runs the obtain macro again, rebuilds the original request, sends it, and returns that response to the tool. The message note is `ATOR refreshed this response`.
 
-The handler skips the request when Preview is on, the tool checkbox is off, or **InScope** is on and the request is out of scope. A handler exception is logged and the original message continues.
+The handler skips the request when Preview is on, the tool checkbox is off, **InScope** is on and the request is out of scope, or **Only selected domains** is on and the host is not in the domain list. A handler exception is logged and the original message continues.
 
 The session action only does steps 1 and 2. The error-triggered retry stays on the HTTP handler.
 
@@ -53,14 +62,15 @@ burp-mcp has no separate ATOR invoke API. Send a normal request with `send_http1
 | `status` | empty | JSON snapshot. Extraction values are included. |
 | `refresh` | empty | Runs the obtain macro, then the same snapshot as `status`. |
 | `export` | empty | `{ "ok": true, "action": "export", "config": "<ATOR export JSON>" }`. `config` is the same document the Settings **Export ATOR** button writes. |
-| `import` | ATOR export JSON | Loads error conditions, obtain steps, and replacement rules on the Swing thread. The response is a `status` snapshot without extraction values. |
+| `import` | ATOR export JSON | Loads error conditions, obtain steps, and replacement rules on the Swing thread. The response is a `status` snapshot without extraction values. A `domains` array in the document replaces the domain list. |
+| `domains` | JSON array, `{"domains":[...]}`, or one host per line | Replaces the domain list. `{"domains":[]}` handles every host. `{"enabled":false}` keeps the saved hosts and handles every host. The response is a `status` snapshot without extraction values. |
 
 Unknown commands return HTTP 400. A failed command returns HTTP 500 with `{ "ok": false, "error": "..." }`. Responses use `Content-Type: application/json` and `X-ATOR: 1`.
 
 `status` fields:
 
-- `extension`, `version` (`2.4.1`), `sessionHandlingAction` (`ATOR`)
-- `preview`, `inScopeOnly`, `trigger` (the condition expression from Preview)
+- `extension`, `version` (`2.4.2`), `sessionHandlingAction` (`ATOR`)
+- `preview`, `inScopeOnly`, `domainsEnabled`, `domains` (the host list), `trigger` (the condition expression from Preview)
 - `tools`: Repeater, Intruder, Scanner, Sequencer, Proxy, Extensions, Burp AI, each with `enabled`
 - `extractions`: `name`, `present`, `length`, and `value` when `present` is true
 - `obtainSteps`, `replacements`, `errorConditions`
@@ -86,6 +96,17 @@ Content-Type: application/json
 {"errorCondition":{},"obtainToken":{},"errorConditionReplacement":{}}
 ```
 
+Example domain list. An empty `domains` array handles every host again:
+
+```http
+POST /ator HTTP/1.1
+Host: ator.local
+X-ATOR-Command: domains
+Content-Type: application/json
+
+{"domains":["api.example.com","*.lab.local"]}
+```
+
 **Extensions (burp-mcp)** must stay enabled for `send_http1_request` and `send_http2_request` to receive token replacement. The command header itself is accepted from Extensions even when you only want `status` or `export`.
 
 To have session rules call ATOR, add a session handling rule whose action is `ATOR`. burp-mcp `set_project_options` can write that rule. The action obtains missing tokens and applies replacement rules. It does not perform the error-triggered retry.
@@ -102,13 +123,13 @@ Requirements:
 mvn clean package
 ```
 
-Load the jar with dependencies from `target/` in **Extensions > Add > Java**. `BappManifest.bmf` names the extension **Authentication Token Obtain and Replace**, screen version `2.4.1`, and lists the BApp entry point as `bin/ATOR-v2.4.1.jar`. Rebuild before relying on the copy under `bin/`.
+Load the jar with dependencies from `target/` in **Extensions > Add > Java**. `BappManifest.bmf` names the extension **Authentication Token Obtain and Replace**, screen version `2.4.2`, and lists the BApp entry point as `bin/ATOR-v2.4.2.jar`. Rebuild before relying on the copy under `bin/`.
 
 `mvn clean install` matches the manifest `BuildCommand` and also installs the artifact locally.
 
 ## Configure ATOR
 
-The suite tab is **ATOR v2.4.1**. It has two sections: **ATOR Configuration** and **Settings**.
+The suite tab is **ATOR v2.4.2**. It has two sections: **ATOR Configuration** and **Settings**.
 
 Configuration has four steps:
 
@@ -117,7 +138,7 @@ Configuration has four steps:
 3. **Error Condition Replacement.** Where those values are written on the next request.
 4. **Preview.** Dry-run the replacement. While Preview is enabled, live traffic is not modified.
 
-Add messages from Proxy history with **Send to ATOR v2.4.1**, then choose **1. Error Condition** or **2. ATOR Macro (Obtain Token)**.
+Add messages from Proxy history with **Send to ATOR v2.4.2**, then choose **1. Error Condition**, **2. ATOR Macro (Obtain Token)**, or **3. Add domain**.
 
 ### Error condition
 
@@ -142,7 +163,8 @@ Extraction names can request URL encode or decode. A name that starts with `jwt`
 
 - Tool checkboxes choose which Burp tools the live handler updates. **All/None** toggles every checkbox, including **InScope**.
 - **InScope** limits replacement and refresh to in-scope requests.
-- **Export ATOR** and **Import ATOR** read and write the same JSON that the `export` and `import` commands use.
+- **Domains** limits replacement and refresh to the hosts you add. With the list empty, or with **Only selected domains** unchecked, ATOR handles every host.
+- **Export ATOR** and **Import ATOR** read and write the same JSON that the `export` and `import` commands use, including the domain list.
 
 ## Walkthrough with Tiredful
 
@@ -165,7 +187,7 @@ Watch the obtain and retry traffic in Logger++ or the extension output. A second
 
 ## Version
 
-2.4.1
+2.4.2
 
 ## Authors
 

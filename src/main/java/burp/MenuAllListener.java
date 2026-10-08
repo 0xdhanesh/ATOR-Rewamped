@@ -305,8 +305,38 @@ public class MenuAllListener implements ActionListener{
 			importATOR.readJSONFile();
 			
 			break;
+		case ADD_DOMAIN:
+			addSelectedDomains();
+			break;
 			
 		}
+	}
+
+	private void addSelectedDomains() {
+		if (messages == null || messages.length == 0) {
+			return;
+		}
+		java.util.LinkedHashSet<String> added = new java.util.LinkedHashSet<>();
+		for (IHttpRequestResponse message : messages) {
+			if (message == null || message.getHttpService() == null) {
+				continue;
+			}
+			String normalized = DomainFilter.add(message.getHttpService().getHost());
+			if (normalized != null) {
+				added.add(normalized);
+			}
+		}
+		if (added.isEmpty()) {
+			JOptionPane.showMessageDialog(null,
+					"The selected message has no host to add.",
+					"ATOR domains",
+					JOptionPane.WARNING_MESSAGE);
+			return;
+		}
+		JOptionPane.showMessageDialog(null,
+				DomainFilter.statusText() + "\n\n" + String.join("\n", DomainFilter.patterns()),
+				"ATOR domains",
+				JOptionPane.INFORMATION_MESSAGE);
 	}
 	
 	public void  getDefaultTriggerCondition(IHttpRequestResponse iHttpRequestResponse) {

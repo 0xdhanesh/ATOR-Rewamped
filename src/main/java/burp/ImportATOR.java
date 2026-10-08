@@ -4,6 +4,8 @@ import java.awt.FlowLayout;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.io.FileReader;
+import java.util.ArrayList;
+import java.util.List;
 import javax.swing.BoxLayout;
 import javax.swing.JButton;
 import javax.swing.JFileChooser;
@@ -56,6 +58,52 @@ public class ImportATOR {
 		parseObtainToken(obtainToken);
 		JSONObject errorConditionReplacement = (JSONObject) jsonObject.get("errorConditionReplacement");
 		parseErrorConditionReplacement(errorConditionReplacement);
+		parseDomains(jsonObject);
+	}
+
+	private void parseDomains(JSONObject jsonObject) {
+		boolean hasDomains = jsonObject.containsKey("domains");
+		boolean hasFlag = jsonObject.containsKey("domainsEnabled");
+		if (!hasDomains && !hasFlag) {
+			return;
+		}
+		List<String> hosts = new ArrayList<>();
+		if (hasDomains) {
+			Object raw = jsonObject.get("domains");
+			if (raw instanceof JSONArray) {
+				for (Object item : (JSONArray) raw) {
+					if (item != null) {
+						hosts.add(String.valueOf(item));
+					}
+				}
+			} else if (raw instanceof String) {
+				hosts.add((String) raw);
+			} else if (raw != null) {
+				callbacks.printOutput("ATOR domains were not a list, so the domain list was left unchanged.");
+				hasDomains = false;
+			}
+		}
+		Boolean enabled = hasFlag ? booleanValue(jsonObject.get("domainsEnabled")) : null;
+		if (hasDomains) {
+			for (String bad : DomainFilter.invalid(hosts)) {
+				callbacks.printOutput("Skipped invalid ATOR domain: " + bad);
+			}
+			DomainFilter.setPatterns(hosts, enabled);
+			return;
+		}
+		if (enabled != null) {
+			DomainFilter.setEnabled(enabled);
+		}
+	}
+
+	private static Boolean booleanValue(Object value) {
+		if (value instanceof Boolean) {
+			return (Boolean) value;
+		}
+		if (value == null) {
+			return Boolean.FALSE;
+		}
+		return Boolean.valueOf(String.valueOf(value));
 	}
 
 	public void parseErrorCondition(JSONObject jsonObject) {
