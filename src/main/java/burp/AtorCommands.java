@@ -4,9 +4,14 @@ import burp.api.montoya.http.message.requests.HttpRequest;
 import burp.api.montoya.http.message.responses.HttpResponse;
 import burp.api.montoya.utilities.json.JsonArrayNode;
 import burp.api.montoya.utilities.json.JsonObjectNode;
+import org.json.simple.JSONArray;
+import org.json.simple.JSONObject;
+import org.json.simple.parser.JSONParser;
 
 import javax.swing.SwingUtilities;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
 
 import static burp.api.montoya.utilities.json.JsonArrayNode.jsonArrayNode;
 import static burp.api.montoya.utilities.json.JsonObjectNode.jsonObjectNode;
@@ -42,8 +47,10 @@ public final class AtorCommands {
                     return json(200, exportConfig());
                 case "import":
                     return json(200, importConfig(request.bodyToString()));
+                case "domains":
+                    return json(200, setDomains(request.bodyToString()));
                 default:
-                    return json(400, error("Unknown command '" + command + "'. Use status, refresh, export, or import."));
+                    return json(400, error("Unknown command '" + command + "'. Use status, refresh, export, import, or domains."));
             }
         } catch (Exception e) {
             Throwable reported = e;
@@ -62,10 +69,12 @@ public final class AtorCommands {
     private static JsonObjectNode status(boolean includeValues) {
         JsonObjectNode root = jsonObjectNode();
         root.putString("extension", "ATOR");
-        root.putString("version", "2.4.1");
+        root.putString("version", BurpExtender.VERSION);
         root.putString("sessionHandlingAction", AtorSessionAction.NAME);
         root.putBoolean("preview", PreviewPanel.isPreviewEnabled);
         root.putBoolean("inScopeOnly", SetttingsTab.inScope != null && SetttingsTab.inScope.isSelected());
+        root.putBoolean("domainsEnabled", DomainFilter.isEnabled());
+        root.put("domains", domainNodes());
         root.putString("trigger", PreviewPanel.conditionDetails == null ? "" : PreviewPanel.conditionDetails.getText());
         root.put("tools", tools());
         root.put("extractions", extractions(includeValues));
@@ -73,7 +82,7 @@ public final class AtorCommands {
         root.putNumber("replacements", ReplacePanel.replaceEntrylist.size());
         root.putNumber("errorConditions", ErrorPanel.errorEntrylist.size());
         root.putString("commandHeader", AtorHttpHandler.COMMAND_HEADER);
-        root.putString("commands", "status, refresh, export, import");
+        root.putString("commands", "status, refresh, export, import, domains");
         return root;
     }
 
@@ -150,6 +159,140 @@ public final class AtorCommands {
         wrapper.putBoolean("ok", true);
         wrapper.putString("action", "import");
         return wrapper.toJsonString();
+    }
+
+    private static JsonArrayNode domainNodes() {
+        JsonArrayNode list = jsonArrayNode();
+        for (String host : DomainFilter.patterns()) {
+            list.addString(host);
+        }
+        return list;
+    }
+
+    private static String setDomains(String body) throws Exception {
+        DomainCommand parsed = parseDomains(body);
+        if (parsed.error != null) {
+            return error(parsed.error);
+        }
+        Runnable task = () -> DomainFilter.setPatterns(parsed.domains, parsed.enabled);
+        if (SwingUtilities.isEventDispatchThread()) {
+            task.run();
+        } else {
+            SwingUtilities.invokeAndWait(task);
+        }
+        JsonObjectNode wrapper = status(false);
+        wrapper.putBoolean("ok", true);
+        wrapper.putString("action", "domains");
+        return wrapper.toJsonString();
+    }
+
+    private static DomainCommand parseDomains(String body) {
+        if (body == null || body.isBlank()) {
+            return DomainCommand.error("domains requires a JSON array, {\"domains\":[...]}, or one host per line. Send {\"domains\":[]} to handle every host.");
+        }
+        String trimmed = body.trim();
+        try {
+            if (trimmed.startsWith("[")) {
+                Object parsed = new JSONParser().parse(trimmed);
+                if (!(parsed instanceof JSONArray)) {
+                    return DomainCommand.error("domains body must be a JSON array of hosts.");
+                }
+                return fromHosts(readArray((JSONArray) parsed), null);
+            }
+            if (trimmed.startsWith("{")) {
+                Object parsed = new JSONParser().parse(trimmed);
+                if (!(parsed instanceof JSONObject)) {
+                    return DomainCommand.error("domains body must be a JSON object with a domains array.");
+                }
+                JSONObject object = (JSONObject) parsed;
+                if (!object.containsKey("domains") && !object.containsKey("enabled") && !object.containsKey("domainsEnabled")) {
+                    return DomainCommand.error("domains object needs \"domains\" or \"enabled\".");
+                }
+                List<String> hosts = null;
+                if (object.containsKey("domains")) {
+                    Object raw = object.get("domains");
+                    if (raw instanceof JSONArray) {
+                        hosts = readArray((JSONArray) raw);
+                    } else if (raw instanceof String) {
+                        hosts = new ArrayList<>();
+                        hosts.add((String) raw);
+                    } else {
+                        return DomainCommand.error("domains must be an array of hosts.");
+                    }
+                }
+                Boolean enabled = null;
+                if (object.containsKey("enabled")) {
+                    enabled = booleanValue(object.get("enabled"));
+                } else if (object.containsKey("domainsEnabled")) {
+                    enabled = booleanValue(object.get("domainsEnabled"));
+                }
+                if (hosts == null) {
+                    hosts = new ArrayList<>(DomainFilter.patterns());
+                }
+                return fromHosts(hosts, enabled);
+            }
+        } catch (Exception e) {
+            String message = e.getMessage() == null ? e.toString() : e.getMessage();
+            return DomainCommand.error("Could not read domains: " + message);
+        }
+        List<String> hosts = new ArrayList<>();
+        boolean any = false;
+        for (String line : trimmed.split("\\R")) {
+            String item = line.trim();
+            if (item.isEmpty() || item.startsWith("#")) {
+                continue;
+            }
+            any = true;
+            hosts.add(item);
+        }
+        if (!any) {
+            return DomainCommand.error("domains requires a JSON array, {\"domains\":[...]}, or one host per line. Send {\"domains\":[]} to handle every host.");
+        }
+        return fromHosts(hosts, null);
+    }
+
+    private static DomainCommand fromHosts(List<String> hosts, Boolean enabled) {
+        List<String> invalid = DomainFilter.invalid(hosts);
+        if (!invalid.isEmpty()) {
+            return DomainCommand.error("Invalid domain(s): " + String.join(", ", invalid));
+        }
+        return new DomainCommand(hosts, enabled, null);
+    }
+
+    private static List<String> readArray(JSONArray array) {
+        List<String> hosts = new ArrayList<>();
+        for (Object item : array) {
+            if (item != null) {
+                hosts.add(String.valueOf(item));
+            }
+        }
+        return hosts;
+    }
+
+    private static Boolean booleanValue(Object value) {
+        if (value instanceof Boolean) {
+            return (Boolean) value;
+        }
+        if (value == null) {
+            return Boolean.FALSE;
+        }
+        return Boolean.valueOf(String.valueOf(value));
+    }
+
+    private static final class DomainCommand {
+        private final List<String> domains;
+        private final Boolean enabled;
+        private final String error;
+
+        private DomainCommand(List<String> domains, Boolean enabled, String error) {
+            this.domains = domains;
+            this.enabled = enabled;
+            this.error = error;
+        }
+
+        private static DomainCommand error(String message) {
+            return new DomainCommand(null, null, message);
+        }
     }
 
     private static String error(String message) {

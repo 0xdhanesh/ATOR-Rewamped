@@ -12,8 +12,9 @@ import java.util.List;
 public class BurpExtender implements BurpExtension, IBurpExtender, IContextMenuFactory, ITab {
 	
 	
-    private static String EXTENSION_NAME = "ATOR v2.4.1";
-    private static String EXTENSION_NAME_TAB_NAME = "ATOR v2.4.1";
+    public static final String VERSION = "2.4.2";
+    private static final String EXTENSION_NAME = "ATOR v" + VERSION;
+    private static final String EXTENSION_NAME_TAB_NAME = EXTENSION_NAME;
     public static SpotErrorMetaData spoterroMetaData = null;;
     public static IBurpExtenderCallbacks callbacks;
     public static MontoyaApi api;
@@ -29,6 +30,7 @@ public class BurpExtender implements BurpExtension, IBurpExtender, IContextMenuF
     public void initialize(MontoyaApi montoyaApi) {
         api = montoyaApi;
         api.extension().setName(EXTENSION_NAME);
+        DomainFilter.ensureLoaded();
         registerMontoyaHandlers();
         logReady();
     }
@@ -41,6 +43,7 @@ public class BurpExtender implements BurpExtension, IBurpExtender, IContextMenuF
 		callbacks.setExtensionName(EXTENSION_NAME);
         callbacks.registerContextMenuFactory(this);
         callbacks.addSuiteTab(this);
+        DomainFilter.ensureLoaded();
         registerMontoyaHandlers();
         logReady();
      }
@@ -69,11 +72,12 @@ public class BurpExtender implements BurpExtension, IBurpExtender, IContextMenuF
             return;
         }
         readyLogged = true;
-        log("ATOR v2.4.1 loaded for Burp 2026.8 (Montoya HTTP handler, HTTP/2 safe).");
+        log("ATOR v" + VERSION + " loaded for Burp 2026.8 (Montoya HTTP handler, HTTP/2 safe).");
         log("Session handling action name: " + AtorSessionAction.NAME);
+        log(DomainFilter.statusText() + " Settings, Send to ATOR > Add domain, or " + AtorHttpHandler.COMMAND_HEADER + ": domains.");
         log("burp-mcp send_http1_request and send_http2_request are handled when Extensions is enabled.");
         log("burp-mcp commands use header " + AtorHttpHandler.COMMAND_HEADER
-                + ": status, refresh, export, import. Accepted from Extensions, Burp AI, and Repeater. The request is not sent.");
+                + ": status, refresh, export, import, domains. Accepted from Extensions, Burp AI, and Repeater. The request is not sent.");
         log("import: HTTP body is an ATOR export JSON document. export returns that document.");
     }
 
@@ -174,10 +178,13 @@ public class BurpExtender implements BurpExtension, IBurpExtender, IContextMenuF
 			JMenu mainmenu = new JMenu("Send to " + EXTENSION_NAME);
 			JMenuItem errorMenu = new JMenuItem("1. Error Condition");
 			JMenuItem atorMacroMenu = new JMenuItem("2. ATOR Macro (Obtain Token)");
+			JMenuItem domainMenu = new JMenuItem("3. Add domain");
 			errorMenu.addActionListener(new MenuAllListener(callbacks, messages, MenuActions.ATOR_ERROR, getComponent()));
 			atorMacroMenu.addActionListener(new MenuAllListener(callbacks, messages, MenuActions.ATOR_MACRO, getComponent()));
+			domainMenu.addActionListener(new MenuAllListener(callbacks, messages, MenuActions.ADD_DOMAIN, getComponent()));
 			mainmenu.add(errorMenu);
 			mainmenu.add(atorMacroMenu);
+			mainmenu.add(domainMenu);
 			
 			menu.add(mainmenu);
             return menu;

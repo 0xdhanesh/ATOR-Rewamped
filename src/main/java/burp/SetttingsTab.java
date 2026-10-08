@@ -2,14 +2,23 @@ package burp;
 
 import java.awt.Color;
 import java.awt.Component;
+import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
+import java.util.List;
 import javax.swing.BoxLayout;
+import javax.swing.DefaultListModel;
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
 import javax.swing.JLabel;
+import javax.swing.JList;
+import javax.swing.JOptionPane;
 import javax.swing.JPanel;
+import javax.swing.JScrollPane;
 import javax.swing.JTabbedPane;
+import javax.swing.JTextField;
+import javax.swing.ListSelectionModel;
+import javax.swing.SwingUtilities;
 import javax.swing.border.EmptyBorder;
 
 public class SetttingsTab {
@@ -22,6 +31,12 @@ public class SetttingsTab {
     private static JCheckBox boxExtender;
     private static JCheckBox boxBurpAi;
     public static JCheckBox inScope;
+    private static final DefaultListModel<String> DOMAIN_MODEL = new DefaultListModel<>();
+    private static JCheckBox onlyDomains;
+    private static JTextField domainField;
+    private static JLabel domainStatus;
+    private static JLabel domainError;
+    private static boolean domainListenerRegistered;
     static Color BURP_ORANGE = new Color(229, 137, 0);
     private Font headerFont = new Font("Nimbus", Font.BOLD, 13);
     private JButton exportATOR;
@@ -97,6 +112,59 @@ public class SetttingsTab {
         scopePanel.add(col2);
         scopePanel.add(col3);
 
+        JLabel domainHeader = new JLabel("Domains");
+        domainHeader.setAlignmentX(Component.LEFT_ALIGNMENT);
+        domainHeader.setForeground(BURP_ORANGE);
+        domainHeader.setFont(headerFont);
+        domainHeader.setBorder(new EmptyBorder(5, 0, 5, 0));
+
+        JLabel domainHelp = new JLabel("<html><body style='width:520px'>Add one or more hosts and ATOR updates only those domains. "
+        		+ "*.example.com includes that domain and its subdomains. host:port pins a port. "
+        		+ "Clear the list to handle every host again.</body></html>");
+        domainHelp.setAlignmentX(Component.LEFT_ALIGNMENT);
+        domainHelp.setBorder(new EmptyBorder(0, 0, 8, 0));
+
+        onlyDomains = new JCheckBox("Only selected domains", false);
+        onlyDomains.setAlignmentX(Component.LEFT_ALIGNMENT);
+        onlyDomains.addActionListener(event -> DomainFilter.setEnabled(onlyDomains.isSelected()));
+
+        domainField = new JTextField(28);
+        JButton addDomain = new JButton("Add");
+        addDomain.addActionListener(event -> addDomainFromField());
+        domainField.addActionListener(event -> addDomainFromField());
+
+        JPanel addDomainRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        addDomainRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+        addDomainRow.add(domainField);
+        addDomainRow.add(addDomain);
+
+        JList<String> domainList = new JList<>(DOMAIN_MODEL);
+        domainList.setVisibleRowCount(5);
+        domainList.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
+        JScrollPane domainScroll = new JScrollPane(domainList);
+        domainScroll.setAlignmentX(Component.LEFT_ALIGNMENT);
+        domainScroll.setPreferredSize(new Dimension(420, 120));
+        domainScroll.setMaximumSize(new Dimension(Short.MAX_VALUE, 140));
+
+        JButton removeDomain = new JButton("Remove");
+        removeDomain.addActionListener(event -> removeSelectedDomains(domainList));
+        JButton clearDomains = new JButton("Clear");
+        clearDomains.addActionListener(event -> confirmClearDomains(clearDomains));
+
+        JPanel domainButtons = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        domainButtons.setAlignmentX(Component.LEFT_ALIGNMENT);
+        domainButtons.add(removeDomain);
+        domainButtons.add(clearDomains);
+
+        domainStatus = new JLabel(" ");
+        domainStatus.setAlignmentX(Component.LEFT_ALIGNMENT);
+        domainStatus.setBorder(new EmptyBorder(4, 0, 0, 0));
+        domainError = new JLabel(" ");
+        domainError.setAlignmentX(Component.LEFT_ALIGNMENT);
+        domainError.setForeground(new Color(180, 30, 30));
+
+        bindDomains();
+
         JLabel importconfig = new JLabel("Import ATOR config");
         importconfig.setAlignmentX(Component.LEFT_ALIGNMENT);
         importconfig.setForeground(BURP_ORANGE);
@@ -146,16 +214,89 @@ public class SetttingsTab {
         confPanel.add(label2);
         confPanel.add(toggleScopesButton);
         confPanel.add(scopePanel);
+        confPanel.add(domainHeader);
+        confPanel.add(domainHelp);
+        confPanel.add(onlyDomains);
+        confPanel.add(addDomainRow);
+        confPanel.add(domainScroll);
+        confPanel.add(domainButtons);
+        confPanel.add(domainStatus);
+        confPanel.add(domainError);
 
-      
         confPanel.add(importconfig);
         confPanel.add(importPanel);
         confPanel.add(exportconfig);
         confPanel.add(exportPanel);
         
-        settingsTab.add("General", confPanel);
+        JScrollPane settingsScroll = new JScrollPane(confPanel);
+        settingsScroll.setBorder(null);
+        settingsScroll.getVerticalScrollBar().setUnitIncrement(16);
+        settingsTab.add("General", settingsScroll);
         
         return settingsTab;
+    }
+
+    private void bindDomains() {
+        DomainFilter.ensureLoaded();
+        if (!domainListenerRegistered) {
+            domainListenerRegistered = true;
+            DomainFilter.setListener(this::reloadDomains);
+        }
+        reloadDomains();
+    }
+
+    private void reloadDomains() {
+        if (!SwingUtilities.isEventDispatchThread()) {
+            SwingUtilities.invokeLater(this::reloadDomains);
+            return;
+        }
+        DOMAIN_MODEL.clear();
+        for (String host : DomainFilter.patterns()) {
+            DOMAIN_MODEL.addElement(host);
+        }
+        if (onlyDomains != null) {
+            onlyDomains.setSelected(DomainFilter.isEnabled());
+        }
+        if (domainStatus != null) {
+            domainStatus.setText(DomainFilter.statusText());
+        }
+    }
+
+    private void addDomainFromField() {
+        String normalized = DomainFilter.add(domainField.getText());
+        if (normalized == null) {
+            domainError.setText("Use a host such as api.example.com, *.example.com, or api.example.com:8443.");
+            return;
+        }
+        domainField.setText("");
+        domainError.setText(" ");
+    }
+
+    private void removeSelectedDomains(JList<String> domainList) {
+        List<String> selected = domainList.getSelectedValuesList();
+        if (selected.isEmpty()) {
+            domainError.setText("Select a domain to remove.");
+            return;
+        }
+        DomainFilter.remove(selected);
+        domainError.setText(" ");
+    }
+
+    private void confirmClearDomains(JButton source) {
+        if (DomainFilter.patterns().isEmpty()) {
+            domainError.setText(" ");
+            return;
+        }
+        int choice = JOptionPane.showConfirmDialog(source,
+                "Clear the domain list and handle every host?",
+                "ATOR domains",
+                JOptionPane.OK_CANCEL_OPTION,
+                JOptionPane.QUESTION_MESSAGE);
+        if (choice != JOptionPane.OK_OPTION) {
+            return;
+        }
+        DomainFilter.clear();
+        domainError.setText(" ");
     }
 	
 	public static boolean isToolEnabled(int toolFlag) {
